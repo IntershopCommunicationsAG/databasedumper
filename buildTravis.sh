@@ -10,7 +10,8 @@ if [ "$TRAVIS_PULL_REQUEST" != "false" ]; then
         ./gradlew test build -s
     else
         echo -e 'Build Branch for Release => Branch ['$TRAVIS_BRANCH'] Tag ['$TRAVIS_TAG']'
-        ./gradlew -PrunOnCI=true test build :bintrayUpload :publishPlugins -s -i
+        ./gradlew -PrunOnCI=true test build :bintrayUpload :publishPlugins -s
+        git status
     fi
 else
     if [ "$TRAVIS_TAG" == "" ]; then
@@ -18,6 +19,7 @@ else
         ./gradlew test build -s
     else
         echo -e 'Build Branch for Release => Branch ['$TRAVIS_BRANCH'] Tag ['$TRAVIS_TAG']'
-        ./gradlew -PrunOnCI=true test build :bintrayUpload :publishPlugins -s -i
+        ./gradlew -PrunOnCI=true test build :bintrayUpload :publishPlugins -s
+        git status
     fi
 fi
