@@ -1,0 +1,127 @@
+= Database Dumper
+:latestRevision: 1.0.0
+
+== Summary
+This library provides a command line tool and Gradle plugin for creating backups of database-table-content and plays
+it back into the database or another one with the same table-schema. It supports Oracle and Microsoft SQLServer.
+Before the import runs the table content will be deleted.
+
+== Usage
+=== Command Line
+[source,shell]
+[subs=+attributes]
+----
+java -jar -cp '<database driver jar>':databasedumper-{latestRevision}.jar [-e | -i] -f <file> -p <file> [-b <file>] [-r <number>]
+----
+
+=== Parameters
+These are the parameters for the command line tool. The row limit and the table blacklist are optional.
+
+[cols="20%,20%,60%", width="95%", options="header"]
+|===
+|Parameter short | Parameter long | Description
+|*-e* |**--export **| call export mode of database dumper
+|*-i* |**--import **| call import mode of database dumper
+|*-f* <arg>|**--file** <arg>| path to the dump-file, will be created if it not yet exists
+|*-p* <arg>|**--properties** <arg>| path to the properties for database configuration
+|*-r* <arg>|**--rowlimit** <arg>| maximum count of rows that will be read in the cache before a write attemp will be done
+|*-b* <arg>|**--blacklist** <arg>| file with a list of tables that will be ignored
+|===
+
+To specify the connection parameters ( `-p | --properties`) a property file is used with the following key-value pairs:
+[source,properties]
+[subs=+attributes]
+.configuration.properties
+----
+intershop.jdbc.url = <JDBC Url>
+intershop.jdbc.user = <user name>
+intershop.jdbc.password = <user password>
+----
+
+This is an example for the table blacklist:
+[source,text]
+[subs=+attributes]
+.blacklist.file
+----
+MY_USER_INDEXES
+MY_USER_CONSTRAINTS
+MY_USER_IND_COLUMNS
+sessioninformation
+----
+
+=== Gradle Plugin
+
+[source,groovy]
+[subs=+attributes]
+.build.gradle
+----
+buildscript {
+    dependencies {
+        classpath '<database driver jar>'
+        classpath 'com.intershop.gradle.databasedumper:databasedumper:{latestRevision}'
+    }
+    repositories {
+        jcenter()
+    }
+}
+databaseDumper {
+    connection {
+        url = '${getJDBCURL()}'
+        username = '${getJDBCUser()}'
+        password = '${getJDBCPassword()}'
+    }
+
+    contentFile = file('dumperfiles/dumper.zip')
+}
+----
+
+=== Tasks
+The databasepumper Gradle plugin adds two tasks to the project.
+
+[cols="25%,30%,45%", width="95%", options="header"]
+|===
+|Task name          |Type |Description
+|dbImport   |com.intershop.gradle.databasedumper.DBDumperImportTask | Runs an import from a package file to the specified database connection.
+|dbExport   |com.intershop.gradle.databasedumper.DBDumperExportTask | Runs an export to a package file from the specified database connection.
+|===
+
+=== Project Extension 'databaseDumper'
+This plugin adds an extension *`databaseDumper`* to the project.
+
+=== Methods
+[cols="20%,15%,65%", width="95%", options="header"]
+|===
+|Method | Values | Description
+|*connection* |<<connection, connection>> | This contains the database connection configuration.
+|===
+
+=== Properties
+
+[cols="17%,17%,17%,49%", width="95%", options="header"]
+|===
+|Property | Type | Default value | Description
+|*contentFile*   |`File`| null | This is the content file. +
+This is used to import this content in the database. The file must exist.
+The export task uses this information for the content. It will be created if not exists.
+|*rowLimit*   |`int`| 0 | maximum count of rows that will be read in the cache before a write attemp will be done (optional)
+|*tableBlacklist*   |`List<String>`| '[]' | list of tables that will be ignored (optional)
+|===
+
+==== [[connection]]Connection configuration 'connection'
+[cols="17%,17%,17%,49%", width="95%", options="header"]
+|===
+|Property | Type | Default value | Description
+|*url*   |`String`| '' | JDBC url for the used database connection
+|*username*   |`String`| '' | Username of the database user
+|*userpassword*   |`String`| '' | Password for the database user
+|===
+
+== License
+
+Copyright 2014-2017 Intershop Communications.
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.
