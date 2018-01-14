@@ -230,11 +230,11 @@ pluginBundle {
     website = "https://github.com/IntershopCommunicationsAG/${project.name}"
     vcsUrl = "https://github.com/IntershopCommunicationsAG/${project.name}"
     description = project.description
-    tags = ['intershop', 'gradle', 'plugin', 'build', 'isml']
+    tags = ['intershop', 'gradle', 'plugin', 'build', 'databasedumper']
 
     plugins {
         gradleTestPlugin {
-            id = 'com.intershop.gradle.isml'
+            id = 'com.intershop.gradle.databasepumper'
             displayName = project.description
         }
     }
