@@ -210,7 +210,7 @@ bintray {
         websiteUrl = "https://github.com/IntershopCommunicationsAG/${project.name}"
         issueTrackerUrl = "https://github.com/IntershopCommunicationsAG/${project.name}/issues"
 
-        labels = ['intershop', 'gradle', 'plugin', 'build', 'isml']
+        labels = ['intershop', 'gradle', 'plugin', 'database', 'commandline' ]
         publicDownloadNumbers = true
 
         version {
@@ -230,7 +230,7 @@ pluginBundle {
     website = "https://github.com/IntershopCommunicationsAG/${project.name}"
     vcsUrl = "https://github.com/IntershopCommunicationsAG/${project.name}"
     description = project.description
-    tags = ['intershop', 'gradle', 'plugin', 'build', 'databasedumper']
+    tags = ['intershop', 'gradle', 'plugin', 'database', 'databasedumper']
 
     plugins {
         gradleTestPlugin {
