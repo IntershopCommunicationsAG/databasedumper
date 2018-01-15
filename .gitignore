@@ -9,6 +9,9 @@ gen
 .project
 .settings
 
+# travis log
+travis_wait_*.log
+
 # Gradle Files
 .gradle
 /build
