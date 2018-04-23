@@ -19,10 +19,8 @@ package com.intershop.databasedumper.in;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.LinkedList;
@@ -39,12 +37,12 @@ import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.parsers.SAXParser;
 import javax.xml.parsers.SAXParserFactory;
 
-import com.intershop.databasedumper.DatabaseDumper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
 
+import com.intershop.databasedumper.DatabaseDumper;
 import com.intershop.databasedumper.data.DataTable;
 import com.intershop.databasedumper.meta.Table;
 
@@ -52,45 +50,44 @@ public class ZipReader
 {
     private static final Logger LOG = LoggerFactory.getLogger(ZipReader.class);
 
-    private Unmarshaller unmarshaller;
+    private Unmarshaller tableUnmarshaller;
+//    private Unmarshaller dataTableUnmarshaller;
     private File file;
 
-    public ZipReader() throws JAXBException
+    public ZipReader(File importFile) throws JAXBException
     {
-        super();
-        JAXBContext jc = JAXBContext.newInstance(DataTable.class);
-        unmarshaller = jc.createUnmarshaller();
+        JAXBContext jc = JAXBContext.newInstance(Table.class);
+        tableUnmarshaller = jc.createUnmarshaller();
+//        JAXBContext jc2 = JAXBContext.newInstance(DataTable.class);
+//        dataTableUnmarshaller = jc2.createUnmarshaller();
+        this.file = importFile;
     }
 
     public Set<String> getTableNames() throws IOException
     {
         Set<String> result = new TreeSet<>();
-        try (ZipInputStream in = new ZipInputStream(Files.newInputStream(Paths.get(file.getAbsolutePath()), StandardOpenOption.READ)))
-        {
-            ZipEntry entry;
-            while((entry = in.getNextEntry()) != null)
-            {
-                String name = entry.getName();
-                if (name.startsWith(DatabaseDumper.META_DIR_NAME))
-                {
-                    name = name.substring(DatabaseDumper.META_DIR_NAME.length() + 1, name.length() - ".xml".length());
-                    result.add(name);
-                }
-                in.closeEntry();
-            }
-        }
+        try {
+			List<Table> tables = getTables();
+			for(Table t : tables)
+			{
+				result.add(t.getName());
+			}
+		} catch (JAXBException e) {
+			LOG.error("Could not read all table names from input file.", e);
+		}
         return result;
     }
 
-    public void setFile(File file)
-    {
-        this.file = file;
-    }
-
+    /**
+     * Read all table meta information from the data ZIP file. 
+     * @return list of all Table meta data entries 
+     * @throws IOException if file reading fails
+     * @throws JAXBException if content reading fails
+     */
     public List<Table> getTables() throws IOException, JAXBException
     {
         List<Table> result = new LinkedList<>();
-        try (ZipInputStream in = new ZipInputStream(Files.newInputStream(Paths.get(file.getAbsolutePath()), StandardOpenOption.READ)))
+        try (ZipInputStream in = new ZipInputStream(new FileInputStream(file)))
         {
             ZipEntry entry ;
             while((entry = in.getNextEntry()) != null)
@@ -106,7 +103,7 @@ public class ZipReader
                     {
                         outStream.write(buffer, 0, read);
                     }
-                    Table table = (Table)unmarshaller
+                    Table table = (Table)tableUnmarshaller
                                     .unmarshal(new InputSource(new ByteArrayInputStream(outStream.toByteArray())));
                     result.add(table);
                 }
@@ -116,32 +113,47 @@ public class ZipReader
         return result;
     }
 
-    public void forEachDataTable(final ImportHandler handler, final ConnectionFactory conFactory)
+    public void importDataTables(final ImportHandler handler, final ConnectionFactory conFactory)
                     throws IOException, SQLException, ParserConfigurationException, SAXException
     {
-        SAXParser parser = SAXParserFactory.newInstance().newSAXParser();
-        try (ZipInputStream in = new ZipInputStream(Files.newInputStream(Paths.get(file.getAbsolutePath()), StandardOpenOption.READ)))
+    	// open the data file
+        try (ZipInputStream in = new ZipInputStream(new FileInputStream(file)))
         {
+        	// create a new sax parser instance
+            SAXParser parser = SAXParserFactory.newInstance().newSAXParser();
+            
             ZipEntry entry;
+            // read each tables data file 
             while((entry = in.getNextEntry()) != null)
             {
+            	// get the name of the ZIP entry
                 String name = entry.getName();
+                // check if entry is NOT from meta information sub folder
+                // only data files are processed
                 if (!name.startsWith(DatabaseDumper.META_DIR_NAME))
                 {
-                    LOG.info("Preparing zip-entry {}.", name);
+                    LOG.info("Reading table meta data file '{}'.", name);
+                    // create a new data entries parser
                     DataTableParser dt = new DataTableParser();
+                    // parse the data from the entries input stream
                     parser.parse(new DelegateInputStream(in), dt);
+                    // get the data table representation from the parser
                     DataTable dataTable = dt.getDataTable();
+//                    DataTable dataTable = (DataTable) dataTableUnmarshaller.unmarshal(new DelegateInputStream(in));
+                    // get a connection from the factory
                     try (Connection con = conFactory.create())
                     {
-                        handler.writeData(dataTable, con);
+                    	// write data to the connection
+                        handler.writeImportData(dataTable, con);
                     }
-
                 }
+                // close the zip entry
                 in.closeEntry();
-                System.gc();
             }
-        }
+//        } catch (JAXBException e) {
+//			// TODO Auto-generated catch block
+//			e.printStackTrace();
+		}
     }
 
 }

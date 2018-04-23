@@ -15,12 +15,14 @@
  */
 package com.intershop.databasedumper.data;
 
-import com.intershop.databasedumper.meta.Row;
-import com.intershop.databasedumper.meta.Table;
-
-import javax.xml.bind.annotation.XmlRootElement;
+import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
+
+import javax.xml.bind.annotation.XmlRootElement;
+
+import com.intershop.databasedumper.meta.Row;
+import com.intershop.databasedumper.meta.Table;
 
 /**
  * This class is used to process the storage
@@ -29,8 +31,8 @@ import java.util.List;
 @XmlRootElement
 public class DataTable implements Comparable<DataTable>
 {
-    private Table table;
     private List<Row> rows = new LinkedList<>();
+    private Table table;
 
     public Table getTable()
     {
@@ -49,7 +51,7 @@ public class DataTable implements Comparable<DataTable>
         
     public List<Row> getRows()
     {
-        return rows;
+        return Collections.unmodifiableList(rows);
     }
 
     public void setRows(List<Row> rows)
@@ -70,12 +72,12 @@ public class DataTable implements Comparable<DataTable>
     @Override
     public boolean equals(Object obj)
     {
-        if (this == obj)
-            return true;
-        if (obj == null)
-            return false;
-        if (getClass() != obj.getClass())
-            return false;
+		if (this == obj)
+			return true;
+		if (obj == null)
+			return false;
+		if (getClass() != obj.getClass())
+			return false;
         DataTable other = (DataTable)obj;
         if (rows == null)
         {
@@ -97,7 +99,7 @@ public class DataTable implements Comparable<DataTable>
     @Override
     public String toString()
     {
-        return "DataTable [table=" + table + ", rows=" + rows + "]";
+        return "DataTable [table=" + table + "]";
     }
 
     @Override

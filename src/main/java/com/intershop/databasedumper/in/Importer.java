@@ -46,7 +46,7 @@ public class Importer
 {
     private static final Logger LOG = LoggerFactory.getLogger(Importer.class);
 
-    private ImportHandler dataHandler;
+    private ImportHandler importHandler;
     private Map<String, Set<String>> constraints = new ConcurrentHashMap<>();
     private final File contentFile;
     private final String username;
@@ -67,37 +67,50 @@ public class Importer
         try {
             database = SupportedDatabase.getSupportedDatabase(getDatabaseType());
         } catch (Exception ex) {
-            throw new Exception("It was not possible to identify the database!");
+			throw new Exception("It was not possible to identify the database (" + getDatabaseType() + ")!");
         }
 
-        dataHandler = new ImportHandler(database);
-        dataHandler.setMaxRows(maxRows);
-        dataHandler.getZipper().setFile(file);
+        importHandler = new ImportHandler(conFactory, database, file, maxRows);
     }
 
+    /**
+     * Get the name of the database from connection meta data.
+     * @return the name of the used database product
+     * @throws SQLException
+     */
     private String getDatabaseType() throws SQLException {
-        Connection conn = conFactory.create();
-        return conn.getMetaData().getDatabaseProductName();
+    	// create a new database connection
+        try (Connection conn = conFactory.create())
+        {
+	        // return the name of the database
+	        return conn.getMetaData().getDatabaseProductName();
+        }
     }
 
-    public void doImport() throws JAXBException, IOException, SQLException,
+    public void doImport(boolean forceImport) throws JAXBException, IOException, SQLException,
                     ParserConfigurationException, SAXException
     {
         LOG.info("Beginning the validation!");
         boolean valid = checkTableMetadata();
-        LOG.info("Finished the validation! Validation was successfully: {}", valid);
-        if (!valid)
+        if (!valid && !forceImport)
         {
             LOG.error("The destination-database does not seems to fit the given data. Import aborted!");
             return;
         }
-
+        else if (!valid && forceImport)
+        {
+        	LOG.warn("Continue import because 'testImport' option is set while validation failed!");
+        }
+        else
+        {
+        	LOG.info("Finished the validation! Validation was successfully: {}", valid);
+        }
+        
+        // disable constraints
         preProcessing();
-
-        LOG.info("Beginning with the main-process!");
-        dataHandler.writeData(conFactory);
-        LOG.info("Finished the main-process!");
-
+        // import all data
+        importHandler.importData();
+        // enable constraints
         postProcessing();
     }
 
@@ -123,37 +136,36 @@ public class Importer
     {
         LOG.info("Starting the pre-processing!");
 
-        Set<String> tableNames = dataHandler.getZipper().getTableNames();
+        Set<String> tableNames = importHandler.getZipper().getTableNames();
         LOG.info("Removing constraints.");
-        for (String s : tableNames)
+        try (final Connection con = conFactory.create())
         {
-            try (final Connection con = conFactory.create())
-            {
-                dataHandler.readConstraints(con, s, constraints);
+        	for (String s : tableNames)
+        	{
+                importHandler.readConstraints(con, s, constraints);
             }
         }
-        ExecutorService disableConstraintsService = Executors.newWorkStealingPool(4);
-        for (Map.Entry<String, Set<String>> entry : constraints.entrySet())
-        {
-            final String tablename = entry.getKey();
-            if(! entry.getValue().isEmpty()) {
-                for (String constraint : entry.getValue()) {
-                    disableConstraintsService.execute(() -> {
-                        try (Connection con = conFactory.create()) {
-                            dataHandler.disableConstraint(con, tablename, constraint);
-                        } catch (SQLException e) {
-                            LOG.error(e.getLocalizedMessage(), e);
-                        }
-                    });
-                }
-            } else if(database.getConstraintQuery().isEmpty()) {
-                try (Connection con = conFactory.create()) {
-                    dataHandler.disableConstraints(con, tablename);
-                } catch (SQLException e) {
-                    LOG.error(e.getLocalizedMessage(), e);
-                }
-            }
-        }
+        ExecutorService disableConstraintsService = Executors.newWorkStealingPool();
+		for (Map.Entry<String, Set<String>> entry : constraints.entrySet()) {
+			final String tablename = entry.getKey();
+			if (!entry.getValue().isEmpty()) {
+				for (String constraint : entry.getValue()) {
+					disableConstraintsService.execute(() -> {
+						try (Connection con = conFactory.create()) {
+							importHandler.disableConstraint(con, tablename, constraint);
+						} catch (SQLException e) {
+							LOG.error(e.getLocalizedMessage(), e);
+						}
+					});
+				}
+			} else if (database.getConstraintQuery().isEmpty()) {
+				try (Connection con = conFactory.create()) {
+					importHandler.disableConstraints(con, tablename);
+				} catch (SQLException e) {
+					LOG.error(e.getLocalizedMessage(), e);
+				}
+			}
+		}
         disableConstraintsService.shutdown();
         try
         {
@@ -175,7 +187,7 @@ public class Importer
             deleteService.execute(() -> {
                 try (Connection con = conFactory.create())
                 {
-                    dataHandler.deleteTableContent(con, s);
+                    importHandler.deleteTableContent(con, s);
                 }
                 catch(SQLException e)
                 {
@@ -211,7 +223,7 @@ public class Importer
                 for (final String s : entry.getValue()) {
                     enableConstraintsService.execute(() -> {
                         try (Connection con = conFactory.create()) {
-                            dataHandler.enableConstraint(con, tableName, s);
+                            importHandler.enableConstraint(con, tableName, s);
                         } catch (SQLException e) {
                             LOG.error(e.getLocalizedMessage(), e);
                         }
@@ -219,7 +231,7 @@ public class Importer
                 }
             } else if(database.getConstraintQuery().isEmpty()) {
                 try (Connection con = conFactory.create()) {
-                    dataHandler.enableConstraints(con, tableName);
+                    importHandler.enableConstraints(con, tableName);
                 } catch (SQLException e) {
                     LOG.error(e.getLocalizedMessage(), e);
                 }
@@ -245,12 +257,13 @@ public class Importer
     private boolean checkTableMetadata() throws JAXBException, IOException, SQLException
     {
         boolean result = true;
+        ValidationResult validationResult = new ValidationResult();
         try (Connection con = conFactory.create())
         {
-            dataHandler.setScheme(username, con);
+            importHandler.setScheme(username, con);
         }
-        ExecutorService validateService = Executors.newWorkStealingPool(4);
-        List<Table> tables = dataHandler.getZipper().getTables();
+        ExecutorService validateService = Executors.newWorkStealingPool();
+        List<Table> tables = importHandler.getZipper().getTables();
         try
         {
             for (final Table table : tables)
@@ -258,10 +271,11 @@ public class Importer
                 validateService.execute(() -> {
                     try (Connection con = conFactory.create())
                     {
-                        dataHandler.validate(table, con);
+                        importHandler.validate(table, con);
                     }
-                    catch(SQLException e)
+                    catch(Exception e)
                     {
+                    	validationResult.addValidationError();
                         LOG.error(e.getLocalizedMessage(), e);
                         throw new IllegalStateException(e);
                     }
@@ -290,6 +304,21 @@ public class Importer
             result = false;
         }
 
-        return result;
+        return result & validationResult.getValidationErrors() == 0;
+//        return result;
+    }
+    
+    class ValidationResult {
+    	int validationErrors = 0;
+
+		public int getValidationErrors() {
+			return validationErrors;
+		}
+
+		public void addValidationError() {
+			LOG.info("Add validation error...");
+			this.validationErrors++;
+		}
+    	
     }
 }

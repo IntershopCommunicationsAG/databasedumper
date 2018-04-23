@@ -42,6 +42,7 @@ public class ZipWriter
         JAXBContext jc = JAXBContext.newInstance(DataTable.class);
         marshaller = jc.createMarshaller();
         marshaller.setProperty(Marshaller.JAXB_FORMATTED_OUTPUT, true);
+        marshaller.setProperty(Marshaller.JAXB_SCHEMA_LOCATION, "http://www.w3.org/2001/XMLSchema-Instance");
     }
 
     public void write(final DataTable dataTable) throws JAXBException, IOException
@@ -49,13 +50,13 @@ public class ZipWriter
         write(dataTable, null);
     }
 
-    public void write(final DataTable dataTable, final Character suffix) throws JAXBException, IOException
+    public void write(final DataTable dataTable, final Integer suffix) throws JAXBException, IOException
     {
         StringBuilder name = new StringBuilder();
         name.append(dataTable.getTable().getName());
         if (suffix != null)
         {
-            name.append('_').append(suffix.charValue());
+            name.append('_').append(suffix);
         }
         name.append(".xml");
 

@@ -69,19 +69,25 @@ public class DatabaseDumper
                                    cli.getRowLimit(),
                                    cli.getBlackListedTables());
 
+        boolean processStatus = false;
+
+        // is import active
         if(cli.runImport()) {
-            if(dumper.runImport()) {
-                System.exit(0);
-            } else {
-                System.exit(1);
-            }
-        } else if(cli.runExport()) {
-            if(dumper.runExport()) {
-                System.exit(0);
-            } else {
-                System.exit(1);
-            }
+        	// yes, run import
+            processStatus = dumper.runImport(cli.runForceImport());
         }
+        // is export active
+        else if(cli.runExport()) {
+            processStatus = dumper.runExport();
+        }
+        else
+        {
+        	LOG.error("Unknown action to process");
+        }
+        
+        
+        // return 0 if impex process was successful and 1 otherwise
+        System.exit(processStatus ? 0 : 1);
     }
 
     /**
@@ -103,15 +109,20 @@ public class DatabaseDumper
         this.blacklist = blacklist;
     }
 
+    public boolean runImport() {
+    	return this.runImport(false);
+    }
+    
     /**
      * Import method
      *
+     * @param forceImport continue the import if set to <code>true</code>
      * @return  true, if the process was successful
      */
-    public boolean runImport() {
+    public boolean runImport(boolean forceImport) {
         try {
             Importer importer = new Importer(jdbcUrl, jdbcUser, jdbcPassword, contentFile, this.rowLimit);
-            importer.doImport();
+            importer.doImport(forceImport);
             return true;
         } catch(Exception e) {
             LOG.error(e.getLocalizedMessage(), e);
@@ -143,12 +154,8 @@ public class DatabaseDumper
      * @throws IOException
      * @throws SQLException
      */
-    @SuppressWarnings("JavaDoc")
     private void createExportPackage() throws JAXBException, IOException, SQLException {
-        ExportHandler handler = new ExportHandler();        
-        if (rowLimit > 0) {
-            handler.setMaxRows(rowLimit);
-        }
+        ExportHandler handler = new ExportHandler(rowLimit);        
 
         LOG.info("Destination for export is : {}", contentFile.getAbsolutePath());
 
@@ -169,19 +176,24 @@ public class DatabaseDumper
             }
 
             for (Table table : tables) {
-                if (containsCaseInsensitive(table.getName(), blacklist)) {
-                    LOG.info("Ignoring table {}, because it is part of the blacklist!", table.getName());
+                if (isBlacklistedTable(table.getName())) {
+                    LOG.info("Ignoring table {}, because it is blacklisted!", table.getName());
                     continue;
                 }
 
                 LOG.info("Reading table {}", table.getName());
                 handler.readData(table, con);
-                LOG.info("Wrote entry for {}", table.getName());
+                LOG.info("Exported data for {}", table.getName());
             }
         }
     }
 
-    private boolean containsCaseInsensitive(String s, List<String> l){
-        return l.stream().anyMatch(x -> x.equalsIgnoreCase(s));
+    /**
+     * Checks if the table black list contains the table name. 
+     * @param tableName
+     * @return
+     */
+    private boolean isBlacklistedTable(String tableName){
+        return blacklist.contains(tableName.toUpperCase());
     }
 }
