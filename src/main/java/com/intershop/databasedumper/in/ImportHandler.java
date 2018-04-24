@@ -17,6 +17,7 @@
 package com.intershop.databasedumper.in;
 
 import java.io.ByteArrayInputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.Reader;
 import java.io.StringReader;
@@ -26,18 +27,25 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.sql.Types;
-import java.util.*;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Set;
+import java.util.TimeZone;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 import javax.xml.bind.JAXBException;
 import javax.xml.datatype.XMLGregorianCalendar;
 import javax.xml.parsers.ParserConfigurationException;
 
-import com.intershop.databasedumper.SupportedDatabase;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xml.sax.SAXException;
 
+import com.intershop.databasedumper.SupportedDatabase;
 import com.intershop.databasedumper.data.DataTable;
 import com.intershop.databasedumper.meta.Column;
 import com.intershop.databasedumper.meta.ColumnTypeComperator;
@@ -48,8 +56,7 @@ class ImportHandler
 {
     private static final Logger LOG = LoggerFactory.getLogger(ImportHandler.class);
 
-    private static final int MAX_ROWS = 1000;
-
+    public static final int MAX_ROWS = 1000;
     private int maxRows = MAX_ROWS;
 
     private String scheme;
@@ -58,19 +65,34 @@ class ImportHandler
 
     private final SupportedDatabase database;
 
-    public ImportHandler(SupportedDatabase database) {
-        this.database = database;
+    private ConnectionFactory connectionFactory = null;
+    
+    public ImportHandler(ConnectionFactory conFactory, SupportedDatabase database, File importFile, int maxRows) {
+        this.connectionFactory = conFactory;
+    	this.database = database;
+        
+        try
+        {
+            zipper = new ZipReader(importFile);
+        }
+        catch(JAXBException e)
+        {
+            throw new IllegalStateException("Could not create ZipReader!", e);
+        }
+        
+        this.maxRows = maxRows <= 0 ? MAX_ROWS : maxRows;
     }
 
-    public void writeData(final ConnectionFactory conFactory)
-                    throws IOException, SQLException, ParserConfigurationException, SAXException
-    {
-        zipper.forEachDataTable(this, conFactory);
-    }
+	public void importData()
+			throws IOException, SQLException, ParserConfigurationException, SAXException {
+        LOG.info("Beginning with the main-process!");
+		zipper.importDataTables(this, connectionFactory);
+        LOG.info("Finished the main-process!");
+	}
 
-    public void writeData(final DataTable dataTable, final Connection con) throws SQLException
+    public void writeImportData(final DataTable dataTable, final Connection con) throws SQLException
     {
-        LOG.info("Writing into {} ", dataTable.getTable().getName());
+        LOG.info("Writing data into {} ", dataTable.getTable().getName());
         StringBuilder insertStr = new StringBuilder("insert into " + dataTable.getTable().getName() + "(");
         String collect = dataTable.getTable().getColumns().stream().map(Column::getLabel)
                         .collect(Collectors.joining(","));
@@ -83,6 +105,9 @@ class ImportHandler
 
         try (PreparedStatement stm = con.prepareStatement(insertStr.toString()))
         {
+            TimeZone tz = TimeZone.getTimeZone("UTC");
+            Calendar cal = Calendar.getInstance(tz);
+
             int rowCount = 0;
             for (Row row : dataTable.getRows())
             {
@@ -97,6 +122,11 @@ class ImportHandler
                         case Types.DOUBLE:
                         case Types.DECIMAL:
                         case Types.FLOAT:
+                        case Types.BIT:
+                        case Types.BIGINT:
+                        case Types.SMALLINT:
+                        case Types.INTEGER:
+                        case Types.TINYINT:
                             stm.setBigDecimal(index, get(obj));
                             break;
                         case Types.VARCHAR:
@@ -104,14 +134,14 @@ class ImportHandler
                             stm.setString(index, get(obj));
                             break;
                         case Types.TIMESTAMP:
-                        case Types.OTHER:
+                        case Types.TIME:
                             Timestamp timestamp = null;
-                            XMLGregorianCalendar cal = get(obj);
-                            if (cal != null)
+                            XMLGregorianCalendar xmlCal = get(obj);
+                            if (xmlCal != null)
                             {
-                                timestamp = new Timestamp(cal.toGregorianCalendar().getTimeInMillis());
+                                timestamp = new Timestamp(xmlCal.toGregorianCalendar().getTimeInMillis());
                             }
-                            stm.setTimestamp(index, timestamp);
+                            stm.setTimestamp(index, timestamp, cal);
                             break;
                         case Types.BLOB:
                         case Types.VARBINARY:
@@ -128,19 +158,20 @@ class ImportHandler
                             }
                             stm.setClob(index, reader);
                             break;
+                        case Types.OTHER:
                         default:
                             throw new IllegalStateException(
                                             "Unsupported type at table " + dataTable.getTable().getName() + '.'
-                                                            + column.getLabel() + " : " + column.getType());
+                                                            + column.getLabel() + " : " + java.sql.JDBCType.valueOf(column.getType()).getName());
 
                     }
                 }
                 stm.addBatch();
                 if (rowCount >= maxRows)
                 {
-                    LOG.info("Beginning part-commit for table {}", dataTable.getTable().getName());
+                    LOG.info("Commit {} rows batch of table {}", rowCount, dataTable.getTable().getName());
                     stm.executeBatch();
-                    LOG.info("... partly ...");
+                    LOG.info("... continue ...");
                     rowCount = 0;
                 }
                 else
@@ -149,7 +180,7 @@ class ImportHandler
                 }
             }
             stm.executeBatch();
-            LOG.info(" done.");
+            LOG.info("Finished import of table {} with {} rows batch commit.", dataTable.getTable().getName(), rowCount);
         }
     }
 
@@ -176,38 +207,42 @@ class ImportHandler
         }
     }
     
-    public void disableConstraint(final Connection con, final String tablename, final String constraint) throws SQLException {
-        try (PreparedStatement stm = con
-                        .prepareStatement(String.format(database.getDisableConstraintStatement(), tablename, constraint)))
+    public void disableConstraint(final Connection con, final String tableName, final String constraint) throws SQLException {
+        String disableConstraintSQL = String.format(database.getDisableConstraintStatement(), tableName, constraint);
+		try (PreparedStatement stm = con
+                        .prepareStatement(disableConstraintSQL))
         {
-            LOG.info("alter table {} disable constraint {}", tablename, constraint);
+            LOG.info("Disable contraint {} on {} with '{}'", constraint, tableName, disableConstraintSQL);
             stm.executeUpdate();
         }
     }
 
-    public void disableConstraints(final Connection con, final String tablename) throws SQLException {
-        try (PreparedStatement stm = con
-                .prepareStatement(String.format(database.getDisableConstraintStatement(), tablename)))
+    public void disableConstraints(final Connection con, final String tableName) throws SQLException {
+        String disableConstraintSQL = String.format(database.getDisableConstraintStatement(), tableName);
+		try (PreparedStatement stm = con
+                .prepareStatement(disableConstraintSQL))
         {
-            LOG.info("alter table {} disable constraint", tablename);
+            LOG.info("Disable all contraints on {} with '{}'", tableName, disableConstraintSQL);
             stm.executeUpdate();
         }
     }
     
     public void enableConstraint(final  Connection con, final String tableName, final String constraint) throws SQLException {
-        try (PreparedStatement stm = con
-                        .prepareStatement(String.format(database.getEnableConstraintStatement(), tableName, constraint)))
+        String enableContraintSQL = String.format(database.getEnableConstraintStatement(), tableName, constraint);
+		try (PreparedStatement stm = con
+                        .prepareStatement(enableContraintSQL))
         {
-            LOG.info("alter table {} enable constraint {}", tableName, constraint);
+            LOG.info("Enable contraint {} on {} with '{}'", constraint, tableName, enableContraintSQL);
             stm.executeUpdate();
         }
     }
 
     public void enableConstraints(final  Connection con, final String tableName) throws SQLException {
-        try (PreparedStatement stm = con
-                .prepareStatement(String.format(database.getEnableConstraintStatement(), tableName)))
+        String enableContraintSQL = String.format(database.getEnableConstraintStatement(), tableName);
+		try (PreparedStatement stm = con
+                .prepareStatement(enableContraintSQL))
         {
-            LOG.info("alter table {} enable constraint", tableName);
+            LOG.info("Enable all contraints on {} with '{}'", tableName, enableContraintSQL);
             stm.executeUpdate();
         }
     }
@@ -217,11 +252,11 @@ class ImportHandler
         try (PreparedStatement stm = con.prepareStatement(String.format("delete from %s", tableName)))
         {
             int executed = stm.executeUpdate();
-            LOG.info("Deleted entries from table {}: {}", tableName, executed);
+            LOG.info("Deleted entries of table {}: {}", tableName, executed);
         }
         catch(SQLException e)
         {
-            throw new IllegalStateException("Could not delete content of table " + tableName, e);
+            throw new IllegalStateException("Could not delete entries of table " + tableName, e);
         }
     }
 
@@ -236,16 +271,13 @@ class ImportHandler
     public void validate(final Table table, final Connection con) throws SQLException
     {
         LOG.info("Validating table {}", table.getName());
-        ColumnTypeComperator comperator = new ColumnTypeComperator();
 
-        boolean tableExists;
-
-        tableExists = validateTable(table,con, table.getName(), this.scheme);
-        if(! tableExists) {
-            tableExists = validateTable(table,con, table.getName(),null);
+        boolean tableExists = validateTable(table, con, table.getName(), this.scheme);
+		if (!tableExists) {
+			tableExists = validateTable(table, con, table.getName(), null);
         }
-        if (! tableExists) {
-            tableExists = validateTable(table ,con, table.getName().toLowerCase(), null);
+		if (!tableExists) {
+			tableExists = validateTable(table, con, table.getName().toLowerCase(), null);
         }
 
         if (!tableExists)
@@ -255,32 +287,44 @@ class ImportHandler
         }
     }
 
-    private boolean validateTable(final Table table, final Connection con, String tableName, String scheme) throws SQLException
+    private boolean validateTable(final Table sourceTable, final Connection con, String tableName, String scheme) throws SQLException
     {
         ColumnTypeComperator comperator = new ColumnTypeComperator();
         boolean tableExists = false;
 
+        final Map<String, Integer> columnMap = new TreeMap<>();
+        sourceTable.getColumns().forEach(c -> columnMap.put(c.getLabel(), c.getType()));
+
+        // get all meta information from database
         try (ResultSet resultSet = con.getMetaData().getColumns(null, this.scheme, tableName, null)) {
-            final Map<String, Integer> columnMap = new TreeMap<>();
-            table.getColumns().forEach(c -> columnMap.put(c.getLabel(), c.getType()));
             while (resultSet.next()) {
+            	// column meta data is found; table exists
                 tableExists = true;
-                String name = resultSet.getString("COLUMN_NAME");
-                int type = resultSet.getInt("DATA_TYPE");
-                Integer sourceType = columnMap.remove(name);
-                if (sourceType == null) {
-                    LOG.warn("The column {} of the table {} does not exists in the source!", name, tableName);
-                } else if (!comperator.matches(sourceType.intValue(), Integer.valueOf(type))) {
-                    throw new IllegalStateException("In the table " + table.getName() + ", the column " + name
-                            + " has the type " + type + ", but expected was something that could be handled as "
-                            + sourceType);
-                }
+                
+                // get column name
+                String columnName = resultSet.getString("COLUMN_NAME");
+                // and type
+                int columnType = resultSet.getInt("DATA_TYPE");
+                
+                // get type from source table
+                Integer sourceType = columnMap.remove(columnName);
+                
+                // check if type exists in source
+				if (sourceType == null) {
+					// no; found column does not exists in source data
+					LOG.warn("The column {} of the table {} does not exists in the source!", columnName, tableName);
+				}
+				//
+				else if (!comperator.matches(sourceType.intValue(), Integer.valueOf(columnType))) {
+					throw new IllegalArgumentException("Unexpected type: " + sourceTable.getName() + "." + columnName
+							+ "(" + java.sql.JDBCType.valueOf(columnType).getName() + "). Column should be of type '"
+							+ java.sql.JDBCType.valueOf(sourceType).getName() + "'.");
+				}
             }
 
             if (tableExists && !columnMap.isEmpty()) {
-                throw new IllegalStateException("In the destination-database, the table " + tableName
-                        + " is missing at least one column! Missing: "
-                        + columnMap.keySet().stream().collect(Collectors.joining(", ")));
+				throw new IllegalStateException("The target table " + tableName + " is missing the following columns: "
+						+ columnMap.keySet().stream().collect(Collectors.joining(", ")));
             }
         }
 
@@ -289,23 +333,7 @@ class ImportHandler
 
     public ZipReader getZipper()
     {
-        if (zipper == null)
-        {
-            try
-            {
-                zipper = new ZipReader();
-            }
-            catch(JAXBException e)
-            {
-                throw new IllegalStateException("Could not create ZipReader!", e);
-            }
-        }
         return zipper;
-    }
-
-    public void setMaxRows(int maxRows)
-    {
-        this.maxRows = maxRows == 0 ? MAX_ROWS : maxRows;
     }
 
     /**

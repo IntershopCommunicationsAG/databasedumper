@@ -28,12 +28,20 @@ public class Table
     private String name;
 
     private List<Column> columns = new ArrayList<>();
-       
+    
+    /**
+     * Get the name of the table
+     * @return the table name
+     */
     public String getName()
     {
         return name;
     }
 
+    /**
+     * Set the name of the table
+     * @param name the table name
+     */
     public void setName(String name)
     {
         this.name = name;

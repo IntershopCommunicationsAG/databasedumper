@@ -40,7 +40,7 @@ class DelegateInputStream extends InputStream
     public void close() throws IOException
     {
         /*
-         * Do nothing and keep the delegate-steam open.
+         * Do nothing and keep the delegate-stream open.
          * For a ZipInputStream, this is necessary!
          */
     }

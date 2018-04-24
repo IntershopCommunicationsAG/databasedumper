@@ -15,18 +15,37 @@
  */
 package com.intershop.databasedumper.ex;
 
-import com.intershop.databasedumper.data.DataTable;
-import com.intershop.databasedumper.meta.Column;
-import com.intershop.databasedumper.meta.Row;
-import com.intershop.databasedumper.meta.Table;
+import java.io.ByteArrayOutputStream;
+import java.io.CharArrayWriter;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.Reader;
+import java.sql.Blob;
+import java.sql.Clob;
+import java.sql.Connection;
+import java.sql.Date;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
+import java.sql.Time;
+import java.sql.Types;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.List;
+import java.util.Locale;
+import java.util.TimeZone;
+
+import javax.xml.bind.JAXBException;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.xml.bind.JAXBException;
-import java.io.*;
-import java.sql.*;
-import java.util.ArrayList;
-import java.util.List;
+import com.intershop.databasedumper.data.DataTable;
+import com.intershop.databasedumper.meta.Column;
+import com.intershop.databasedumper.meta.ColumnTypeComperator;
+import com.intershop.databasedumper.meta.Row;
+import com.intershop.databasedumper.meta.Table;
 
 /**
  * This is the main class for the export
@@ -38,13 +57,17 @@ public class ExportHandler
 {
     private static final Logger LOG = LoggerFactory.getLogger(ExportHandler.class);
 
-    private static final int MAX_ROWS = 300000;
+    private static final int MAX_ROWS = 100000;
 
     private int maxRows = MAX_ROWS;
     
     private ZipWriter zipper;
 
-    public List<Table> readTableNames(final Connection con, final String scheme) throws SQLException
+    public ExportHandler(int maxRows) {
+        this.maxRows = maxRows <= 0 ? MAX_ROWS : maxRows;
+	}
+
+	public List<Table> readTableNames(final Connection con, final String scheme) throws SQLException
     {    
         List<Table> list = new ArrayList<>();
 
@@ -96,9 +119,11 @@ public class ExportHandler
 
     public DataTable readData(final Table table, final Connection con) throws SQLException, IOException, JAXBException
     {
+        // create a data type
         DataTable dataTable = new DataTable();
+        // set data types
         dataTable.setTable(table);
-        char suffix = 'a';
+        int suffix = 0;
         try (PreparedStatement stm = con.prepareStatement(String.format("select * from %s", table.getName())))
         {
             ResultSetMetaData metaData = stm.getMetaData();
@@ -110,6 +135,9 @@ public class ExportHandler
                 table.addColumn(column);
             }
 
+            TimeZone tz = TimeZone.getTimeZone("UTC");
+            Calendar cal = Calendar.getInstance(tz);
+            
             try (ResultSet resultSet = stm.executeQuery())
             {
                 while(resultSet.next())
@@ -117,12 +145,17 @@ public class ExportHandler
                     Row row = new Row();
                     for (Column column : table.getColumns())
                     {
-                        switch(column.getType())
+						switch(column.getType())
                         {
                             case Types.NUMERIC:
                             case Types.DOUBLE:
                             case Types.DECIMAL:
                             case Types.FLOAT:
+                            case Types.BIT:
+                            case Types.BIGINT:
+                            case Types.SMALLINT:
+                            case Types.INTEGER:
+                            case Types.TINYINT:
                                 row.add(resultSet.getBigDecimal(column.getLabel()));
                                 break;
                             case Types.VARCHAR:
@@ -130,8 +163,19 @@ public class ExportHandler
                                 row.add(resultSet.getString(column.getLabel()));
                                 break;
                             case Types.TIMESTAMP:
-                            case Types.OTHER:
-                                row.add(resultSet.getTime(column.getLabel()));
+                            case Types.TIME:
+                                Date resultDate = resultSet.getDate(column.getLabel(), cal);
+        						Time resultsTime = resultSet.getTime(column.getLabel(), cal);
+        						Date d = null;
+        						if (null != resultDate && null != resultsTime)
+								{
+									d = new Date(resultDate.getTime() + resultsTime.getTime());
+									LOG.debug(column.getType() + ": " + resultDate + "/" + resultsTime + " Java: " + resultDate.getTime()
+											+ "/" + d);
+								} else {
+									LOG.debug("Date or time is null");
+								}
+                            	row.add(d);
                                 break;
                             case Types.BLOB:
                             case Types.VARBINARY:
@@ -178,28 +222,58 @@ public class ExportHandler
                                     row.add(null);
                                 }
                                 break;
+                            case Types.OTHER:
                             default:
-                                throw new IllegalArgumentException("Not supported type: " + column.getType());
+							throw new IllegalArgumentException(
+									"Unsupported type: " + table.getName() + "." + column.getLabel() + "("
+											+ java.sql.JDBCType.valueOf(column.getType()).getName() + ")");
                         }
                     }
                     dataTable.addRow(row);
                     if (dataTable.getRows().size() >= maxRows)
                     {
+                    	// write a new chunk of the table to the target zip
                         getZipper().write(dataTable, suffix);
+                        // increment the suffic
                         ++suffix;
-                        LOG.info("... wrote part-table.");
+                        LOG.info("... wrote table chunk.");
+                        // create a new data table
                         dataTable = new DataTable();
+                        // set the known meta data information
                         dataTable.setTable(table);
                     }
                 }
             }
         }
         getZipper().write(dataTable);
-        getZipper().write(table);
+        // check data types of all columns of the table
+        if (validateType(table))
+        {
+        	// write table metadata file after writing data
+        	getZipper().write(table);
+        }
         return dataTable;
     }
         
-    public ZipWriter getZipper()
+    protected boolean validateType(Table table) {
+    	boolean result = true;
+    	
+    	ColumnTypeComperator columnTypeComparater = new ColumnTypeComperator();
+    	
+    	for (Column column : table.getColumns())
+    	{
+    		if (!columnTypeComparater.isKnownType(column.getType()))
+    		{
+    			result = false;
+				LOG.warn("Unsupported type: {}.{}({})", table.getName(), column.getLabel(),
+						java.sql.JDBCType.valueOf(column.getType()).getName());
+    		}
+    	}
+    	
+    	return result;
+	}
+
+	public ZipWriter getZipper()
     {
         if (zipper == null)
         {
@@ -209,15 +283,9 @@ public class ExportHandler
             }
             catch(JAXBException e)
             {
-                throw new IllegalStateException("Could not create the zip-writer!", e);
+                throw new IllegalStateException("Could not create the output zip writer!", e);
             }
         }
         return zipper;
     }
-
-    public void setMaxRows(int maxRows)
-    {
-        this.maxRows = maxRows == 0 ? MAX_ROWS : maxRows;
-    }
-
 }

@@ -23,42 +23,79 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Used to compare columntypes.
+ * Used to compare column types.
  */
 public class ColumnTypeComperator
 {
-    private final List<Set<Integer>> list = new ArrayList<>();
+    // a list of equivalent type sets
+    private final List<Set<Integer>> typeList = new ArrayList<>(5);
 
     public ColumnTypeComperator()
     {
-        super();
         initMap();
     }
 
     private void initMap()
     {
         put(Types.VARCHAR, Types.NVARCHAR);
-        put(Types.NUMERIC, Types.FLOAT, Types.DOUBLE, Types.DECIMAL);
+        put(Types.NUMERIC, Types.FLOAT, Types.DOUBLE, Types.DECIMAL, Types.BIT, Types.BIGINT, Types.SMALLINT, Types.INTEGER, Types.TINYINT);
         put(Types.TIMESTAMP, Types.OTHER);
         put(Types.BLOB, Types.VARBINARY);
         put(Types.CLOB, Types.NVARCHAR, Types.LONGNVARCHAR);
     }
 
+    /**
+     * Create a set of matching types and store to internal list.
+     * @param values different database types to be equivalent
+     */
     private void put(Integer... values)
     {
+    	// create a set of matching types
         Set<Integer> set = Arrays.stream(values).collect(Collectors.toSet());
-        list.add(set);
+        // add type set to list
+        typeList.add(set);
     }
 
-    public boolean matches(Integer sourceType, Integer type)
+    /**
+     * Check if the source type and the target type are equivalent.
+     * @param sourceType source column type
+     * @param targetType expected target type
+     * @return <code>true</code> if source type can be converted to target type and <code>false</code> otherwise
+     */
+    public boolean matches(Integer sourceType, Integer targetType)
     {
-        for (Set<Integer> set : list)
+    	// loop all type sets
+        for (Set<Integer> set : typeList)
         {
-            if (set.contains(sourceType) && set.contains(type))
+        	// check if the set contains source and target type
+            if (set.contains(sourceType) && set.contains(targetType))
             {
+            	// yes, match found
                 return true;
             }
         }
+        // no match found
+        return false;
+    }
+    
+    /**
+     * Checks if the column type is known.
+     * @param type the type to check
+     * @return <code>true</code> if the type is known and <code>false</code> otherwise
+     */
+    public boolean isKnownType(Integer type)
+    {
+    	// loop all type sets
+        for (Set<Integer> set : typeList)
+        {
+        	// check if the set contains source and target type
+            if (set.contains(type))
+            {
+            	// yes, match found
+                return true;
+            }
+        }
+        // no match found
         return false;
     }
 }
