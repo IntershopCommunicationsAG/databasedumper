@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xsd:schema
+	xmlns="http://www.intershop.com/xml/ns/enfinity/7.1/xcs/impex"
+	xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+	xmlns:xml="http://www.w3.org/XML/1998/namespace"
+	targetNamespace="http://www.intershop.com/xml/ns/enfinity/7.1/xcs/impex"
+	elementFormDefault="qualified">
+
+	<xsd:element name="table">
+		<xsd:complexType mixed="false">
+			<xsd:sequence>
+				<xsd:element name="structure" type="complexType.TableStructure" />
+				<xsd:element name="data" type="complexType.TableData" />
+			</xsd:sequence>
+			<xsd:attributeGroup ref="attributeGroup.documentVersion" />
+		</xsd:complexType>
+	</xsd:element>
+	
+	<xsd:element name="table-structure">
+		<xsd:complexType mixed="false">
+			<xsd:sequence>
+				<xsd:element name="structure" type="complexType.TableStructure" />
+			</xsd:sequence>
+			<xsd:attributeGroup ref="attributeGroup.documentVersion" />
+		</xsd:complexType>
+	</xsd:element>
+	
+	<xsd:complexType name="complexType.TableStructure" mixed="false">
+		<xsd:sequence>
+			<xsd:element name="columns" type="complexType.TableColumns" minOccurs="0" maxOccurs="unbounded" />
+		</xsd:sequence>
+	</xsd:complexType>
+	
+	<xsd:complexType name="complexType.TableColumns" mixed="false">
+		<xsd:sequence>
+			<xsd:element name="column" type="complexType.TableColumn" minOccurs="0" maxOccurs="unbounded" />
+		</xsd:sequence>
+	</xsd:complexType>
+	
+	<xsd:complexType name="complexType.TableColumn" mixed="false">
+		<xsd:attribute name="name" />
+		<xsd:attribute name="type-id" />
+		<xsd:attribute name="type-name" />
+	</xsd:complexType>
+	
+	<xsd:complexType name="complexType.TableData" mixed="false">
+		<xsd:choice>
+			<xsd:element name="rows"
+				type="complexType.Rows" minOccurs="0" maxOccurs="unbounded" />
+		</xsd:choice>
+	</xsd:complexType>
+	
+	<xsd:complexType name="complexType.Rows" mixed="false">
+		<xsd:choice>
+			<xsd:element name="row"
+				type="complexType.Row" minOccurs="0" maxOccurs="unbounded" />
+		</xsd:choice>
+	</xsd:complexType>
+
+	<xsd:complexType name="complexType.Row" mixed="false">
+		<xsd:choice>
+			<xsd:element name="value"
+				type="complexType.Data" minOccurs="0" maxOccurs="unbounded" />
+		</xsd:choice>
+	</xsd:complexType>
+
+	<xsd:complexType name="complexType.Data">
+		<xsd:simpleContent>
+			<xsd:restriction base="xsd:anyType" />
+		</xsd:simpleContent>
+		<xsd:attribute name="" ref=""></xsd:attribute>
+	</xsd:complexType>
+
+	<xsd:attributeGroup name="attributeGroup.documentVersion">
+		<xsd:attribute name="major">
+			<xsd:simpleType>
+				<xsd:restriction base="xsd:string">
+					<xsd:pattern value="\d{1}" />
+				</xsd:restriction>
+			</xsd:simpleType>
+		</xsd:attribute>
+		<xsd:attribute name="minor">
+			<xsd:simpleType>
+				<xsd:restriction base="xsd:string">
+					<xsd:pattern value="\d{1}" />
+				</xsd:restriction>
+			</xsd:simpleType>
+		</xsd:attribute>
+		<xsd:attribute name="family">
+			<xsd:simpleType>
+				<xsd:restriction base="xsd:string">
+					<xsd:pattern value="enfinity" />
+				</xsd:restriction>
+			</xsd:simpleType>
+		</xsd:attribute>
+		<xsd:attribute name="branch">
+			<xsd:simpleType>
+				<xsd:restriction base="xsd:string">
+					<xsd:pattern value="enterprise" />
+				</xsd:restriction>
+			</xsd:simpleType>
+		</xsd:attribute>
+		<xsd:attribute name="build" type="xsd:string" />
+	</xsd:attributeGroup>
+</xsd:schema>

@@ -17,11 +17,15 @@ package com.intershop.databasedumper.ex;
 
 import com.intershop.databasedumper.DatabaseDumper;
 import com.intershop.databasedumper.data.DataTable;
+import com.intershop.databasedumper.meta.Row;
 import com.intershop.databasedumper.meta.Table;
 
 import javax.xml.bind.JAXBContext;
 import javax.xml.bind.JAXBException;
 import javax.xml.bind.Marshaller;
+import javax.xml.stream.XMLOutputFactory;
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.XMLStreamWriter;
 import javax.xml.transform.stream.StreamResult;
 import java.io.IOException;
 import java.util.zip.ZipEntry;
@@ -31,60 +35,57 @@ import java.util.zip.ZipOutputStream;
  * This class zip the data files
  * to a package.
  */
-public class ZipWriter
+public class ZipWriter implements AutoCloseable
 {
-    private ZipOutputStream out;
-    private Marshaller marshaller;
+    protected ZipOutputStream out = null;
+    protected Marshaller marshaller = null;
+    protected XMLStreamWriter writer = null;
+    protected Table table = null;
 
-    public ZipWriter() throws JAXBException
-    {
-        super();
-        JAXBContext jc = JAXBContext.newInstance(DataTable.class);
-        marshaller = jc.createMarshaller();
-        marshaller.setProperty(Marshaller.JAXB_FORMATTED_OUTPUT, true);
-        marshaller.setProperty(Marshaller.JAXB_SCHEMA_LOCATION, "http://www.w3.org/2001/XMLSchema-Instance");
-    }
-
-    public void write(final DataTable dataTable) throws JAXBException, IOException
-    {
-        write(dataTable, null);
-    }
-
-    public void write(final DataTable dataTable, final Integer suffix) throws JAXBException, IOException
-    {
-        StringBuilder name = new StringBuilder();
-        name.append(dataTable.getTable().getName());
-        if (suffix != null)
-        {
-            name.append('_').append(suffix);
-        }
-        name.append(".xml");
-
-        ZipEntry entry = new ZipEntry(name.toString());
-        out.putNextEntry(entry);
-        marshaller.marshal(dataTable, new StreamResult(out));
-        out.closeEntry();
-        out.flush();
-        System.gc();
-    }
-
-    public void write(final Table table) throws IOException, JAXBException
-    {
-        ZipEntry metaEntry = new ZipEntry(DatabaseDumper.META_DIR_NAME + "/" + table.getName() + ".xml");
-        out.putNextEntry(metaEntry);
-        marshaller.marshal(table, new StreamResult(out));
-        out.closeEntry();
-        out.flush();
-        System.gc();
-    }
-
-    public void setOut(ZipOutputStream out)
+    public ZipWriter(ZipOutputStream out, Table table) throws JAXBException, IOException, XMLStreamException
     {
         this.out = out;
+        this.table = table;
+        
+        JAXBContext jc = JAXBContext.newInstance(Table.class);
+        Marshaller metaDataMarshaller = jc.createMarshaller();
+        metaDataMarshaller.setProperty(Marshaller.JAXB_FORMATTED_OUTPUT, true);
+        metaDataMarshaller.setProperty(Marshaller.JAXB_SCHEMA_LOCATION, "http://www.w3.org/2001/XMLSchema-Instance");
+        ZipEntry metaEntry = new ZipEntry(DatabaseDumper.META_DIR_NAME + "/" + table.getName() + ".xml");
+        out.putNextEntry(metaEntry);
+        metaDataMarshaller.marshal(table, new StreamResult(out));
+        out.closeEntry();
+        out.flush();
+        
+        jc = JAXBContext.newInstance(Row.class);
+        marshaller = jc.createMarshaller();
+        marshaller.setProperty(Marshaller.JAXB_FORMATTED_OUTPUT, Boolean.TRUE);
+        // marshaller.setProperty(Marshaller.JAXB_SCHEMA_LOCATION, "http://www.w3.org/2001/XMLSchema-Instance");
+        marshaller.setProperty(Marshaller.JAXB_FRAGMENT, true);
+        ZipEntry entry = new ZipEntry(table.getName() + ".xml");
+        out.putNextEntry(entry);
+        
+        writer = XMLOutputFactory.newFactory().createXMLStreamWriter(out);
+        writer.writeStartDocument();
+        writer.writeStartElement("dataTable");
     }
 
-    public void setMarshaller(Marshaller marshaller)
+    public void write(Row row) throws JAXBException, IOException
     {
-        this.marshaller = marshaller;
+        marshaller.marshal(row, writer);
+    }
+    
+    public Table getTable()
+    {
+        return table;
+    }
+
+    @Override
+    public void close() throws Exception
+    {
+        writer.writeEndDocument();
+        writer.close();
+        out.closeEntry();
+        out.flush();
     }
 }

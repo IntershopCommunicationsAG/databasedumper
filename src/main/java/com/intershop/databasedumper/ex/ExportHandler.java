@@ -33,19 +33,17 @@ import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.List;
-import java.util.Locale;
 import java.util.TimeZone;
+import java.util.zip.ZipOutputStream;
 
 import javax.xml.bind.JAXBException;
+import javax.xml.stream.XMLStreamException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.intershop.databasedumper.data.DataTable;
-import com.intershop.databasedumper.meta.Column;
-import com.intershop.databasedumper.meta.ColumnTypeComperator;
-import com.intershop.databasedumper.meta.Row;
-import com.intershop.databasedumper.meta.Table;
+import com.intershop.xml.ns.enfinity._7_1.xcs.impex.ObjectFactory;
+import com.intershop.xml.ns.enfinity._7_1.xcs.impex.TableStructure;
 
 /**
  * This is the main class for the export
@@ -62,20 +60,27 @@ public class ExportHandler
     private int maxRows = MAX_ROWS;
     
     private ZipWriter zipper;
+    
+    protected ZipOutputStream out = null;
 
-    public ExportHandler(int maxRows) {
+    public ExportHandler(ZipOutputStream out, int maxRows) {
+        this.out = out;
         this.maxRows = maxRows <= 0 ? MAX_ROWS : maxRows;
 	}
 
-	public List<Table> readTableNames(final Connection con, final String scheme) throws SQLException
+	public List<TableStructure> readTableNames(final Connection con, final String scheme) throws SQLException
     {    
-        List<Table> list = new ArrayList<>();
+        List<TableStructure> list = new ArrayList<>();
+
+        System.out.println("Catalog: " + con.getCatalog());
+        System.out.println("Schema: " + con.getSchema());
 
         try (ResultSet tables = con.getMetaData().getTables(null, scheme, null, new String[] { "TABLE" }))
         {
             while(tables.next())
             {
-                Table table = new Table();
+                TableStructure table = new ObjectFactory().
+                System.out.println("CAT: " + tables.getString("TABLE_CAT") + ", SCHEM: " + tables.getString("TABLE_SCHEM") + ", NAME: " + tables.getString("TABLE_NAME") + ", TYPE: " + tables.getString("TABLE_TYPE") + ", REMARKS: " + tables.getString("REMARKS"));
 
                 table.setName(String.valueOf(tables.getString("TABLE_NAME")).toUpperCase());
 
@@ -98,11 +103,20 @@ public class ExportHandler
     {
         List<Table> list = new ArrayList<>();
 
-        try (ResultSet tables = con.getMetaData().getTables(null, null, null, new String[] { "TABLE" }))
+        System.out.println("Catalog: " + con.getCatalog());
+        System.out.println("Schema: " + con.getSchema());
+        ResultSet rSet = con.getMetaData().getSchemas(con.getCatalog(), null);
+        while(rSet.next())
+        {
+            System.out.println("TABLE_SCHEM: " + rSet.getString("TABLE_SCHEM") + ", TABLE_CATALOG: " + rSet.getString("TABLE_CATALOG"));
+        }
+
+        try (ResultSet tables = con.getMetaData().getTables(con.getCatalog(), con.getSchema(), null, new String[] { "TABLE" }))
         {
             while(tables.next())
             {
                 Table table = new Table();
+                System.out.println("CAT: " + tables.getString("TABLE_CAT") + ", SCHEM: " + tables.getString("TABLE_SCHEM") + ", NAME: " + tables.getString("TABLE_NAME") + ", TYPE: " + tables.getString("TABLE_TYPE") + ", REMARKS: " + tables.getString("REMARKS"));
 
                 table.setName(String.valueOf(tables.getString("TABLE_NAME")).toUpperCase());
 
@@ -120,7 +134,8 @@ public class ExportHandler
     public DataTable readData(final Table table, final Connection con) throws SQLException, IOException, JAXBException
     {
         // create a data type
-        DataTable dataTable = new DataTable();
+        // DataTable dataTable = new DataTable();
+        
         // set data types
         dataTable.setTable(table);
         int suffix = 0;
@@ -158,6 +173,7 @@ public class ExportHandler
                             case Types.TINYINT:
                                 row.add(resultSet.getBigDecimal(column.getLabel()));
                                 break;
+                            case Types.CHAR:
                             case Types.VARCHAR:
                             case Types.NVARCHAR:
                                 row.add(resultSet.getString(column.getLabel()));
@@ -178,6 +194,7 @@ public class ExportHandler
                             	row.add(d);
                                 break;
                             case Types.BLOB:
+                            case Types.BINARY:
                             case Types.VARBINARY:
                                 Blob blob = resultSet.getBlob(column.getLabel());
                                 ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -229,29 +246,35 @@ public class ExportHandler
 											+ java.sql.JDBCType.valueOf(column.getType()).getName() + ")");
                         }
                     }
-                    dataTable.addRow(row);
-                    if (dataTable.getRows().size() >= maxRows)
-                    {
-                    	// write a new chunk of the table to the target zip
-                        getZipper().write(dataTable, suffix);
-                        // increment the suffic
-                        ++suffix;
-                        LOG.info("... wrote table chunk.");
-                        // create a new data table
-                        dataTable = new DataTable();
-                        // set the known meta data information
-                        dataTable.setTable(table);
-                    }
+                    // dataTable.addRow(row);
+                    // if (dataTable.getRows().size() >= maxRows)
+                    // {
+                	// write a new chunk of the table to the target zip
+                    getZipper(table).write(row);
+                    // increment the suffic
+                    ++suffix;
+                    LOG.info("... wrote table chunk.");
+                    // create a new data table
+                    dataTable = new DataTable();
+                    // set the known meta data information
+                    dataTable.setTable(table);
+                    // }
                 }
+                getZipper(table).close();
+            }
+            catch(Exception e)
+            {
+                // TODO Auto-generated catch block
+                e.printStackTrace();
             }
         }
-        getZipper().write(dataTable);
-        // check data types of all columns of the table
-        if (validateType(table))
-        {
-        	// write table metadata file after writing data
-        	getZipper().write(table);
-        }
+//        getZipper().write(dataTable);
+//        // check data types of all columns of the table
+//        if (validateType(table))
+//        {
+//        	// write table metadata file after writing data
+//        	getZipper().write(table);
+//        }
         return dataTable;
     }
         
@@ -273,15 +296,15 @@ public class ExportHandler
     	return result;
 	}
 
-	public ZipWriter getZipper()
+	public ZipWriter getZipper(Table table)
     {
-        if (zipper == null)
+        if (zipper == null || !zipper.getTable().equals(table))
         {
             try
             {
-                zipper = new ZipWriter();
+                zipper = new ZipWriter(out, table);
             }
-            catch(JAXBException e)
+            catch(JAXBException | IOException | XMLStreamException e)
             {
                 throw new IllegalStateException("Could not create the output zip writer!", e);
             }

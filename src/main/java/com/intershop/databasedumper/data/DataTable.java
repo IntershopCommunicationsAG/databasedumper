@@ -31,8 +31,9 @@ import com.intershop.databasedumper.meta.Table;
 @XmlRootElement
 public class DataTable implements Comparable<DataTable>
 {
-    private List<Row> rows = new LinkedList<>();
     private Table table;
+
+    private List<Row> rows = new LinkedList<>();
 
     public Table getTable()
     {

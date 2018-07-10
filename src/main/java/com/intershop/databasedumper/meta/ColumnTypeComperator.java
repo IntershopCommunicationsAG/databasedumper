@@ -37,7 +37,7 @@ public class ColumnTypeComperator
 
     private void initMap()
     {
-        put(Types.VARCHAR, Types.NVARCHAR);
+        put(Types.VARCHAR, Types.NVARCHAR, Types.CHAR);
         put(Types.NUMERIC, Types.FLOAT, Types.DOUBLE, Types.DECIMAL, Types.BIT, Types.BIGINT, Types.SMALLINT, Types.INTEGER, Types.TINYINT);
         put(Types.TIMESTAMP, Types.OTHER);
         put(Types.BLOB, Types.VARBINARY);

@@ -23,7 +23,9 @@ plugins {
     // ide plugin
     id 'idea'
 
-    // plugin for documentation
+    id 'eclipse'
+
+        // plugin for documentation
     id 'org.asciidoctor.convert' version '1.5.3'
 
     // publish plugin
@@ -37,6 +39,8 @@ plugins {
 
     // plugin for publishing to jcenter
     id 'com.jfrog.bintray' version '1.8.0'
+    
+    id 'com.intershop.gradle.jaxb' version '2.0.0'
 }
 
 scm {
@@ -55,6 +59,26 @@ targetCompatibility = 1.8
 // set correct project status
 if (project.version.endsWith('-SNAPSHOT')) {
     status = 'snapshot'
+}
+
+jaxb {
+    // generate java code from schema
+    javaGen {
+       //generates a 'project' schema file from existing java code
+       datatable {
+           schema = file('src/main/resources/xsd/datatable.xsd')
+           //binding = file('binding.xjb')
+       }
+   }
+
+   //generates schema from java code
+   schemaGen {
+       //generates java code for project from project schema
+       name {
+           javaFiles = fileTree(dir: 'src/main/java', include: 'com/intershop/databasedumper/meta/*.java')
+           namespaceconfigs = [ 'http://www.corporate.com/xml/ns/corporate/feature/1.0' : 'feature.xsd' ]
+       }
+   }
 }
 
 test {
@@ -86,6 +110,23 @@ jar {
         attributes 'Implementation-Title': 'Dumper, a tool to create and read database-backups.'
         attributes 'Main-Class': 'com.intershop.databasedumper.DatabaseDumper'
     }
+}
+
+task fatJar(type: Jar) {
+  manifest.from jar.manifest
+  classifier = 'all'
+  from {
+    configurations.runtime.collect { it.isDirectory() ? it : zipTree(it) }
+  } {
+        exclude "META-INF/*.SF"
+        exclude "META-INF/*.DSA"
+        exclude "META-INF/*.RSA"
+  }
+  with jar
+}
+
+artifacts {
+    archives fatJar
 }
 
 task copyAsciiDoc {

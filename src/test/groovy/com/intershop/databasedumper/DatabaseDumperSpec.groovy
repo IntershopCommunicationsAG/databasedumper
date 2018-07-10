@@ -15,6 +15,8 @@
  */
 package com.intershop.databasedumper
 
+import java.sql.SQLException
+
 import com.intershop.gradle.test.util.TestDir
 import groovy.sql.GroovyRowResult
 import groovy.sql.Sql
@@ -27,7 +29,7 @@ abstract class DatabaseDumperSpec extends Specification {
     @TestDir
     File testDir
 
-    abstract void prepareDatabase()
+    abstract void prepareDatabase() throws SQLException
 
     abstract String getJDBCURL()
 

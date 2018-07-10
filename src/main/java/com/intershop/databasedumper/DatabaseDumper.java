@@ -155,13 +155,14 @@ public class DatabaseDumper
      * @throws SQLException
      */
     private void createExportPackage() throws JAXBException, IOException, SQLException {
-        ExportHandler handler = new ExportHandler(rowLimit);        
+        // ExportHandler handler = new ExportHandler(rowLimit);        
 
         LOG.info("Destination for export is : {}", contentFile.getAbsolutePath());
 
         try (ZipOutputStream out = new ZipOutputStream(new FileOutputStream(contentFile))) {
             out.setLevel(9);
-            handler.getZipper().setOut(out);
+            // handler.getZipper().setOut(out);
+            ExportHandler handler = new ExportHandler(out, rowLimit);
 
             List<Table> tables;
 

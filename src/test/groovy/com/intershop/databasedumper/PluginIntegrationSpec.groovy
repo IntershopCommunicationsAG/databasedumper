@@ -19,13 +19,14 @@ import com.intershop.gradle.test.AbstractIntegrationSpec
 import groovy.sql.GroovyRowResult
 import groovy.sql.Sql
 
+import java.sql.SQLException
 import java.util.zip.ZipFile
 
 import static org.gradle.testkit.runner.TaskOutcome.SUCCESS
 
 abstract class PluginIntegrationSpec extends AbstractIntegrationSpec {
 
-    abstract void prepareDatabase()
+    abstract void prepareDatabase() throws SQLException
 
     abstract String getJDBCURL()
 
